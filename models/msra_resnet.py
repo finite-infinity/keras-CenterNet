@@ -9,15 +9,16 @@ import tensorflow as tf
 
 from losses import loss
 
-
+#将多个识别框变为一个（非极大值抑制，抑制置信度低的box）
 def nms(heat, kernel=3):
-    hmax = tf.nn.max_pool2d(heat, (kernel, kernel), strides=1, padding='SAME')
-    heat = tf.where(tf.equal(hmax, heat), heat, tf.zeros_like(heat))
+    hmax = tf.nn.max_pool2d(heat, (kernel, kernel), strides=1, padding='SAME')  #置信度最大的box
+    heat = tf.where(tf.equal(hmax, heat), heat, tf.zeros_like(heat)) #hmax和heat相同的元素不变，其他的替换成0
     return heat
 
 
+#从hm中，找出最大的100个数
 def topk(hm, max_objects=100):
-    hm = nms(hm)
+    hm = nms(hm)  #先过滤重复度高的box
     # (b, h * w * c)
     b, h, w, c = tf.shape(hm)[0], tf.shape(hm)[1], tf.shape(hm)[2], tf.shape(hm)[3]
     # hm2 = tf.transpose(hm, (0, 3, 1, 2))
@@ -35,30 +36,36 @@ def topk(hm, max_objects=100):
     return scores, indices, class_ids, xs, ys
 
 
+#挑出每个class中score>score_threshold，iou<iou_threshold的元素（个数也有限制），如果batch_size>100，用0填充被挑出去的元素，保持batch_size
 def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_class=20, max_objects=100,
                         iou_threshold=0.5, score_threshold=0.1):
+    
+    #挑出每个class中score>score_threshold，iou<iou_threshold的元素
     batch_item_detections = tf.boolean_mask(batch_item_detections,
-                                            tf.greater(batch_item_detections[:, 4], score_threshold))
+                                            tf.greater(batch_item_detections[:, 4], score_threshold)) #保留score>阈值（0.1）的batch_item_detections
     detections_per_class = []
     for cls_id in range(num_classes):
         # (num_keep_this_class_boxes, 4) score 大于 score_threshold 的当前 class 的 boxes
-        class_detections = tf.boolean_mask(batch_item_detections, tf.equal(batch_item_detections[:, 5], cls_id))
+        class_detections = tf.boolean_mask(batch_item_detections, tf.equal(batch_item_detections[:, 5], cls_id)) #保留属于cls_id类的元素
         nms_keep_indices = tf.image.non_max_suppression(class_detections[:, :4],
                                                         class_detections[:, 4],
                                                         max_objects_per_class,
-                                                        iou_threshold=iou_threshold)
-        class_detections = K.gather(class_detections, nms_keep_indices)
+                                                        iou_threshold=iou_threshold)  #按照参数scores（data[:4]）的降序贪婪的选择边界框的子集，返回元素索引
+                                                                                      #最大输出元素个数为max_objects_per_class
+        class_detections = K.gather(class_detections, nms_keep_indices)  #找到索引是nms_keep_indices的元素
         detections_per_class.append(class_detections)
 
-    batch_item_detections = K.concatenate(detections_per_class, axis=0)
+    batch_item_detections = K.concatenate(detections_per_class, axis=0)  #按batch_size拼接数据
 
     def filter():
-        nonlocal batch_item_detections
+        #挑出max_objects个score最高的元素
+        nonlocal batch_item_detections  #声明变量是外部嵌套函数的变量
         _, indices = tf.nn.top_k(batch_item_detections[:, 4], k=max_objects)
         batch_item_detections_ = tf.gather(batch_item_detections, indices)
         return batch_item_detections_
 
     def pad():
+        #挑完后元素个数变少，用0填充
         nonlocal batch_item_detections
         batch_item_num_detections = tf.shape(batch_item_detections)[0]
         batch_item_num_pad = tf.maximum(max_objects - batch_item_num_detections, 0)
@@ -67,7 +74,7 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
                                             [0, batch_item_num_pad],
                                             [0, 0]],
                                         mode='CONSTANT',
-                                        constant_values=0.0)
+                                        constant_values=0.0)  #按照第一个维度（batch）在最后一个元素后添加batch_item_num_pad个0
         return batch_item_detections_
 
     batch_item_detections = tf.cond(tf.shape(batch_item_detections)[0] >= 100,
@@ -79,12 +86,12 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
     scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
     b = tf.shape(hm)[0]
-    # (b, h * w, 2)
+    # (b, h * w, c)
     reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))
     # (b, h * w, 2)
     wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))
     # (b, k, 2)
-    topk_reg = tf.gather(reg, indices, batch_dims=1)
+    topk_reg = tf.gather(reg, indices, batch_dims=1) 
     # (b, k, 2)
     topk_wh = tf.cast(tf.gather(wh, indices, batch_dims=1), tf.float32)
     topk_cx = tf.cast(tf.expand_dims(xs, axis=-1), tf.float32) + topk_reg[..., 0:1]
