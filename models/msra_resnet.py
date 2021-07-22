@@ -20,19 +20,19 @@ def nms(heat, kernel=3):
 def topk(hm, max_objects=100):
     hm = nms(hm)  #先过滤重复度高的box
     # (b, h * w * c)
-    b, h, w, c = tf.shape(hm)[0], tf.shape(hm)[1], tf.shape(hm)[2], tf.shape(hm)[3]
+    b, h, w, c = tf.shape(hm)[0], tf.shape(hm)[1], tf.shape(hm)[2], tf.shape(hm)[3]  #batch
     # hm2 = tf.transpose(hm, (0, 3, 1, 2))
     # hm2 = tf.reshape(hm2, (b, c, -1))
     hm = tf.reshape(hm, (b, -1))
     # (b, k), (b, k)
-    scores, indices = tf.nn.top_k(hm, k=max_objects)
-    # scores2, indices2 = tf.nn.top_k(hm2, k=max_objects)
+    scores, indices = tf.nn.top_k(hm, k=max_objects)   #找到最后一维最大的100个数（即score）[ [a1 a2 a3] ] a属于第i类的score
+    # scores2, indices2 = tf.nn.top_k(hm2, k=max_objects)                                   [b1 b2 b3]   a.shape=[h,w]
     # scores2 = tf.reshape(scores2, (b, -1))
     # topk = tf.nn.top_k(scores2, k=max_objects)
-    class_ids = indices % c
-    xs = indices // c % w
-    ys = indices // c // w
-    indices = ys * w + xs
+    class_ids = indices % c   #代表第indices//c个元素属于第indices % c的score下标
+    xs = indices // c % w     #indices // c代表box号  %w代表score的x坐标
+    ys = indices // c // w    #score的y坐标
+    indices = ys * w + xs     # indices//c - indices // c % w + indices // c % w = indices//c
     return scores, indices, class_ids, xs, ys
 
 
@@ -82,18 +82,18 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
                                     pad)
     return batch_item_detections
 
-
+#hm:置信度最大的box wh:box
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
     scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
     b = tf.shape(hm)[0]
-    # (b, h * w, c)
-    reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))
+    # (b, h * w, 2)
+    reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))  #reshape成（batch, h*w, channel=2）
     # (b, h * w, 2)
     wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))
     # (b, k, 2)
     topk_reg = tf.gather(reg, indices, batch_dims=1) 
     # (b, k, 2)
-    topk_wh = tf.cast(tf.gather(wh, indices, batch_dims=1), tf.float32)
+    topk_wh = tf.cast(tf.gather(wh, indices, batch_dims=1), tf.float32)  #取出wh中对应indices下标的数据
     topk_cx = tf.cast(tf.expand_dims(xs, axis=-1), tf.float32) + topk_reg[..., 0:1]
     topk_cy = tf.cast(tf.expand_dims(ys, axis=-1), tf.float32) + topk_reg[..., 1:2]
     scores = tf.expand_dims(scores, axis=-1)
