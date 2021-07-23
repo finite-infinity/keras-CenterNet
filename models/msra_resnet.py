@@ -200,7 +200,8 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
     y3 = Conv2D(2, 1, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4))(y3)
 
     loss_ = Lambda(loss, name='centernet_loss')(
-        [y1, y2, y3, hm_input, wh_input, reg_input, reg_mask_input, index_input])
+        [y1, y2, y3, hm_input, wh_input, reg_input, reg_mask_input, index_input]) #搭建Lambda层 计算loss ，继承tf.keras.layers.Layer并重写config更稳妥
+    #用model拟合loss？
     model = Model(inputs=[image_input, hm_input, wh_input, reg_input, reg_mask_input, index_input], outputs=[loss_])
 
     # detections = decode(y1, y2, y3) hm wh reg
