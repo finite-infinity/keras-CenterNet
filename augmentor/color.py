@@ -1,7 +1,8 @@
 import numpy as np
 from PIL import Image, ImageEnhance, ImageOps
 
-
+#调整图像颜色
+#自动调节对比度
 def autocontrast(image, prob=0.5):
     random_prob = np.random.uniform()
     if random_prob > prob:
@@ -11,7 +12,7 @@ def autocontrast(image, prob=0.5):
     image = np.array(image)[..., ::-1]
     return image
 
-
+#均衡图像直方图（以便以后灰度图有均匀分布）
 def equalize(image, prob=0.5):
     random_prob = np.random.uniform()
     if random_prob > prob:
@@ -21,7 +22,7 @@ def equalize(image, prob=0.5):
     image = np.array(image)[..., ::-1]
     return image
 
-
+#暴晒图像（超过threshold的像素以prob进行翻转）
 def solarize(image, prob=0.5, threshold=128.):
     random_prob = np.random.uniform()
     if random_prob > prob:
@@ -31,7 +32,7 @@ def solarize(image, prob=0.5, threshold=128.):
     image = np.array(image)[..., ::-1]
     return image
 
-
+#图片锐化增强 因子factor取1为原图
 def sharpness(image, prob=0.5, min=0, max=2, factor=None):
     random_prob = np.random.uniform()
     if random_prob > prob:
@@ -43,7 +44,7 @@ def sharpness(image, prob=0.5, min=0, max=2, factor=None):
     image = enhancer.enhance(factor=factor)
     return np.array(image)[..., ::-1]
 
-
+# factor=0为黑白 1原图
 def color(image, prob=0.5, min=0., max=1., factor=None):
     random_prob = np.random.uniform()
     if random_prob > prob:
