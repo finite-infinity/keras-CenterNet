@@ -82,7 +82,7 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
                                     pad)
     return batch_item_detections
 
-#利用hm得到的inds-维度n*K，将 wh，reg对应位置值提取出来；再利用xs和ys计算bbox：
+#利用hm（heatmap）得到的inds-维度n*K，将 wh，reg对应位置值提取出来；再利用xs和ys计算bbox：
 #[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
     scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
