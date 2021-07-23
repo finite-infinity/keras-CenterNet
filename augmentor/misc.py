@@ -4,7 +4,7 @@ from augmentor.transform import translation_xy, change_transform_origin, scaling
 
 ROTATE_DEGREE = [90, 180, 270]
 
-
+#旋转图像
 def rotate(image, boxes, prob=0.5, border_value=(128, 128, 128)):
     random_prob = np.random.uniform()
     if random_prob < (1 - prob):
@@ -53,7 +53,7 @@ def rotate(image, boxes, prob=0.5, border_value=(128, 128, 128)):
     boxes = np.array(new_boxes)
     return image, boxes
 
-
+#剪裁
 def crop(image, boxes, prob=0.5):
     random_prob = np.random.uniform()
     if random_prob < (1 - prob):
