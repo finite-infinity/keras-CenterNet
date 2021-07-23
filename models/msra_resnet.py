@@ -202,8 +202,9 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
     loss_ = Lambda(loss, name='centernet_loss')(
         [y1, y2, y3, hm_input, wh_input, reg_input, reg_mask_input, index_input]) #搭建Lambda层 计算loss ，继承tf.keras.layers.Layer并重写config更稳妥
     
-    # 利用函数API，从Input开始，然后后续指定前向过程，最后根据输入和输出来建立模型
-    # 搭建训练用model
+    # input_layer = keras.Input(shape), conv = conv_layer(input_layer), ..., output_layer = conv_layer(conv)
+    # model = Model(input=input_layer, output=output_layer)
+    # 搭建训练用model，输出为loss
     model = Model(inputs=[image_input, hm_input, wh_input, reg_input, reg_mask_input, index_input], outputs=[loss_])
 
     # detections = decode(y1, y2, y3) hm wh reg
@@ -213,6 +214,6 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
                                          score_threshold=score_threshold,
                                          nms=nms,
                                          num_classes=num_classes))([y1, y2, y3])
-    prediction_model = Model(inputs=image_input, outputs=detections)  # 测试（推断）用model
-    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])     # 用于生成测试数据的
+    prediction_model = Model(inputs=image_input, outputs=detections)  # 测试（推断）用model,最终输出为推断值[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
+    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])     # 输出 hm wh reg
     return model, prediction_model, debug_model
