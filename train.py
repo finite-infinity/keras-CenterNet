@@ -323,7 +323,7 @@ def main(args=None):
         # for i in range(175):
             model.layers[i].trainable = False  #冻结backbone，不再改变权重
 
-    # compile model
+    # compile model  train_model的输出值直接就是loss，所以y_pred就是loss
     model.compile(optimizer=Adam(lr=1e-3), loss={'centernet_loss': lambda y_true, y_pred: y_pred})
     # model.compile(optimizer=SGD(lr=1e-5, momentum=0.9, nesterov=True, decay=1e-5),
     #               loss={'centernet_loss': lambda y_true, y_pred: y_pred})
