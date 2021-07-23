@@ -52,13 +52,13 @@ def get_session():
 
 def create_callbacks(training_model, prediction_model, validation_generator, args):
     """
-    Creates the callbacks to use during training.
+    Creates the callbacks to use during training. 
 
     Args
-        training_model: The model that is used for training.
-        prediction_model: The model that should be used for validation.
-        validation_generator: The generator for creating validation data.
-        args: parseargs args object.
+        training_model: 用于训练的model
+        prediction_model: 用于验证的model
+        validation_generator: The generator for creating validation data.生成验证数据
+        args: parseargs args object. (config)
 
     Returns:
         A list of callbacks used for training.
@@ -66,7 +66,8 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     callbacks = []
 
     tensorboard_callback = None
-
+    
+    # 可视化数据
     if args.tensorboard_dir:
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir=args.tensorboard_dir,
@@ -91,7 +92,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
             evaluation = Evaluate(validation_generator, prediction_model, tensorboard=tensorboard_callback)
         callbacks.append(evaluation)
 
-    # save the model
+    # save the model（快照）
     if args.snapshots:
         # ensure directory created first; otherwise h5py will error after epoch.
         makedirs(args.snapshot_path)
@@ -118,7 +119,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     #     min_lr=0
     # ))
 
-    return callbacks
+    return callbacks  #[tensorboard, evaluate, checkpoint]
 
 
 def create_generators(args):
@@ -141,7 +142,8 @@ def create_generators(args):
     else:
         misc_effect = None
         visual_effect = None
-
+    
+    # 导入VOC图片和标注（这个好欸）顺便增强数据（查查）
     if args.dataset_type == 'pascal':
         from generators.pascal import PascalVocGenerator
         train_generator = PascalVocGenerator(
@@ -205,7 +207,7 @@ def create_generators(args):
 
 def check_args(parsed_args):
     """
-    Function to check for inherent contradictions within parsed arguments.
+    Function to check for inherent contradictions within parsed arguments.检查参数的内在矛盾
     For example, batch_size < num_gpus
     Intended to raise errors prior to backend initialisation.
 
@@ -232,10 +234,13 @@ def check_args(parsed_args):
 
     return parsed_args
 
-
+# 数据的config
 def parse_args(args):
     """
     Parse the arguments.
+    1、创建一个解析器——创建 ArgumentParser() 对象
+    2、添加参数——调用 add_argument() 方法添加参数
+    3、解析参数——使用 parse_args() 解析添加的参数
     """
     today = str(date.today() + timedelta(days=0))
     parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
@@ -290,7 +295,7 @@ def parse_args(args):
 
 
 def main(args=None):
-    # parse arguments
+    # parse arguments（解析arg）
     if args is None:
         args = sys.argv[1:]
     args = parse_args(args)
@@ -306,17 +311,17 @@ def main(args=None):
 
     num_classes = train_generator.num_classes()
     model, prediction_model, debug_model = centernet(num_classes=num_classes, input_size=args.input_size,
-                                                     freeze_bn=True)
+                                                     freeze_bn=True)   #生成网络结构
 
     # create the model
     print('Loading model, this may take a second...')
-    model.load_weights(args.snapshot, by_name=True, skip_mismatch=True)
+    model.load_weights(args.snapshot, by_name=True, skip_mismatch=True) #加载权重
 
     # freeze layers
     if args.freeze_backbone:
         for i in range(190):
         # for i in range(175):
-            model.layers[i].trainable = False
+            model.layers[i].trainable = False  #冻结backbone，不再改变权重
 
     # compile model
     model.compile(optimizer=Adam(lr=1e-3), loss={'centernet_loss': lambda y_true, y_pred: y_pred})
@@ -327,6 +332,7 @@ def main(args=None):
     # print(model.summary())
 
     # create the callbacks
+    # [tensorboard, evaluate, checkpoint]
     callbacks = create_callbacks(
         model,
         prediction_model,
@@ -337,7 +343,7 @@ def main(args=None):
     if not args.compute_val_loss:
         validation_generator = None
 
-    # start training
+    # start training（fit_generator:函数假定存在一个为其生成数据的基础函数）
     return model.fit_generator(
         generator=train_generator,
         steps_per_epoch=args.steps,
