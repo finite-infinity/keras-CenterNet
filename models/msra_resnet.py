@@ -16,7 +16,7 @@ def nms(heat, kernel=3):
     return heat
 
 
-#从hm中，找出最大的100个数
+#每一张图像，每一个类别，在w*h维度上，取前K=100个
 def topk(hm, max_objects=100):
     hm = nms(hm)  #先过滤重复度高的box
     # (b, h * w * c)
@@ -24,16 +24,16 @@ def topk(hm, max_objects=100):
     # hm2 = tf.transpose(hm, (0, 3, 1, 2))
     # hm2 = tf.reshape(hm2, (b, c, -1))
     hm = tf.reshape(hm, (b, -1))
-    # (b, k), (b, k)
-    scores, indices = tf.nn.top_k(hm, k=max_objects)   #找到最后一维最大的100个数（即score）[ [a1 a2 a3] ] a属于第i类的score
-    # scores2, indices2 = tf.nn.top_k(hm2, k=max_objects)                                   [b1 b2 b3]   a.shape=[h,w]
+    # (b, k), (b, k)                                                                          
+    scores, indices = tf.nn.top_k(hm, k=max_objects)   #找到最后一维最大的100个数（即score）  
+    # scores2, indices2 = tf.nn.top_k(hm2, k=max_objects)                                   index=c*[w*h + w*y + x] + class
     # scores2 = tf.reshape(scores2, (b, -1))
     # topk = tf.nn.top_k(scores2, k=max_objects)
-    class_ids = indices % c   #代表第indices//c个元素属于第indices % c的score下标
-    xs = indices // c % w     #indices // c代表box号  %w代表score的x坐标
+    class_ids = indices % c   #class
+    xs = indices // c % w     #indices // c代表box号（除个）  %w代表score的x坐标
     ys = indices // c // w    #score的y坐标
     indices = ys * w + xs     # indices//c - indices // c % w + indices // c % w = indices//c
-    return scores, indices, class_ids, xs, ys
+    return scores, indices, class_ids, xs, ys   #x,y为box的位置
 
 
 #挑出每个class中score>score_threshold，iou<iou_threshold的元素（个数也有限制），如果batch_size>100，用0填充被挑出去的元素，保持batch_size
@@ -82,14 +82,14 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
                                     pad)
     return batch_item_detections
 
-#hm:置信度最大的box wh:box
+#利用hm得到的inds-维度n*K，将 wh，reg对应位置值提取出来；再利用xs和ys计算bbox：
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
     scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
     b = tf.shape(hm)[0]
     # (b, h * w, 2)
     reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))  #reshape成（batch, h*w, channel=2）
     # (b, h * w, 2)
-    wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))
+    wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))     #宽高
     # (b, k, 2)
     topk_reg = tf.gather(reg, indices, batch_dims=1) 
     # (b, k, 2)
@@ -101,7 +101,7 @@ def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_thresho
     topk_x1 = topk_cx - topk_wh[..., 0:1] / 2
     topk_x2 = topk_cx + topk_wh[..., 0:1] / 2
     topk_y1 = topk_cy - topk_wh[..., 1:2] / 2
-    topk_y2 = topk_cy + topk_wh[..., 1:2] / 2
+    topk_y2 = topk_cy + topk_wh[..., 1:2] / 2    #得到box：（xmin,ymin,xmax,ymax）
     # (b, k, 6)
     detections = tf.concat([topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids], axis=-1)
     if nms:
@@ -115,9 +115,9 @@ def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_thresho
 
 def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100, score_threshold=0.1, nms=True):
     assert backbone in ['resnet18', 'resnet34', 'resnet50']
-    output_size = input_size // 4
+    output_size = input_size // 4   #4倍下采样
     image_input = Input(shape=(None, None, 3))
-    hm_input = Input(shape=(output_size, output_size, num_classes))
+    hm_input = Input(shape=(output_size, output_size, num_classes))  
     wh_input = Input(shape=(max_objects, 2))
     reg_input = Input(shape=(max_objects, 2))
     reg_mask_input = Input(shape=(max_objects,))
