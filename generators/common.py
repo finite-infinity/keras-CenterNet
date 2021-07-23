@@ -56,7 +56,8 @@ class Generator(keras.utils.Sequence):
         # Shuffle when initializing
         if self.shuffle_groups:
             random.shuffle(self.groups)
-
+    
+    #epoch结束时，current_index清零,顺便shuffle
     def on_epoch_end(self):
         if self.shuffle_groups:
             random.shuffle(self.groups)
@@ -132,13 +133,15 @@ class Generator(keras.utils.Sequence):
                     'bboxes' in annotations), '\'load_annotations\' should return a list of dictionaries that contain \'labels\' and \'bboxes\'.'
 
         return annotations_group
-
+    
+    #去异常值（图外或w、h<0）
     def filter_annotations(self, image_group, annotations_group, group):
         """
         Filter annotations by removing those that are outside of the image bounds or whose width/height < 0.
         """
         # test all annotations
         for index, (image, annotations) in enumerate(zip(image_group, annotations_group)):
+            #要删的
             # test x2 < x1 | y2 < y1 | x1 < 0 | y1 < 0 | x2 <= 0 | y2 <= 0 | x2 >= image.shape[1] | y2 >= image.shape[0]
             invalid_indices = np.where(
                 (annotations['bboxes'][:, 2] <= annotations['bboxes'][:, 0]) |
@@ -178,7 +181,7 @@ class Generator(keras.utils.Sequence):
             image_height = image.shape[0]
             image_width = image.shape[1]
             # x1
-            annotations['bboxes'][:, 0] = np.clip(annotations['bboxes'][:, 0], 0, image_width - 2)
+            annotations['bboxes'][:, 0] = np.clip(annotations['bboxes'][:, 0], 0, image_width - 2)  #截取box宽度[0:img_wid-2]
             # y1
             annotations['bboxes'][:, 1] = np.clip(annotations['bboxes'][:, 1], 0, image_height - 2)
             # x2
@@ -186,6 +189,7 @@ class Generator(keras.utils.Sequence):
             # y2
             annotations['bboxes'][:, 3] = np.clip(annotations['bboxes'][:, 3], 1, image_height - 1)
             # test x2 < x1 | y2 < y1 | x1 < 0 | y1 < 0 | x2 <= 0 | y2 <= 0 | x2 >= image.shape[1] | y2 >= image.shape[0]
+            #剪完，太小的box全部去掉
             small_indices = np.where(
                 (annotations['bboxes'][:, 2] - annotations['bboxes'][:, 0] < 10) |
                 (annotations['bboxes'][:, 3] - annotations['bboxes'][:, 1] < 10)
@@ -375,12 +379,12 @@ class Generator(keras.utils.Sequence):
 
         # copy all images to the upper left part of the image batch object
         for b, (image, annotations) in enumerate(zip(image_group, annotations_group)):
-            c = np.array([image.shape[1] / 2., image.shape[0] / 2.], dtype=np.float32)
+            c = np.array([image.shape[1] / 2., image.shape[0] / 2.], dtype=np.float32) 
             s = max(image.shape[0], image.shape[1]) * 1.0
-            trans_input = get_affine_transform(c, s, self.input_size)
+            trans_input = get_affine_transform(c, s, self.input_size) 
 
             # inputs
-            image = self.preprocess_image(image, c, s, tgt_w=self.input_size, tgt_h=self.input_size)
+            image = self.preprocess_image(image, c, s, tgt_w=self.input_size, tgt_h=self.input_size) #将图片变形（长宽一半）
             batch_images[b] = image
 
             # outputs
@@ -401,15 +405,15 @@ class Generator(keras.utils.Sequence):
                 bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, self.output_size - 1)
                 h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
                 if h > 0 and w > 0:
-                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w)))
+                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w))) #生成高斯半径
                     radius_h = max(0, int(radius_h))
                     radius_w = max(0, int(radius_w))
 
-                    radius = gaussian_radius_2((math.ceil(h), math.ceil(w)))
+                    radius = gaussian_radius_2((math.ceil(h), math.ceil(w)))  #圆形高斯半径
                     radius = max(0, int(radius))
-                    ct = np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
+                    ct = np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)  #中心点
                     ct_int = ct.astype(np.int32)
-                    draw_gaussian(batch_hms[b, :, :, cls_id], ct_int, radius_h, radius_w)
+                    draw_gaussian(batch_hms[b, :, :, cls_id], ct_int, radius_h, radius_w)  #生成cls_id类的heatmap，但没存返回值啊？
                     draw_gaussian_2(batch_hms_2[b, :, :, cls_id], ct_int, radius)
                     batch_whs[b, i] = 1. * w, 1. * h
                     batch_indices[b, i] = ct_int[1] * self.output_size + ct_int[0]
