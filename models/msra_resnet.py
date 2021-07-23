@@ -83,6 +83,7 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
     return batch_item_detections
 
 #利用hm得到的inds-维度n*K，将 wh，reg对应位置值提取出来；再利用xs和ys计算bbox：
+#[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
     scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
     b = tf.shape(hm)[0]
@@ -116,7 +117,7 @@ def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_thresho
 def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100, score_threshold=0.1, nms=True):
     assert backbone in ['resnet18', 'resnet34', 'resnet50']
     output_size = input_size // 4   #4倍下采样
-    image_input = Input(shape=(None, None, 3))
+    image_input = Input(shape=(None, None, 3))  
     hm_input = Input(shape=(output_size, output_size, num_classes))  
     wh_input = Input(shape=(max_objects, 2))
     reg_input = Input(shape=(max_objects, 2))
@@ -131,8 +132,9 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
         resnet = ResNet50(image_input, include_top=False, freeze_bn=True)
 
     # C5 (b, 16, 16, 512)
-    C2, C3, C4, C5 = resnet.outputs
-
+    C2, C3, C4, C5 = resnet.outputs   
+    
+    #dropout
     C5 = Dropout(rate=0.5)(C5)
     C4 = Dropout(rate=0.4)(C4)
     C3 = Dropout(rate=0.3)(C3)
@@ -179,19 +181,19 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
     # (b, 128, 128, 512)
     x = ReLU()(x)
 
-    # hm header
+    # hm header   batch * numclass * 128 * 128
     y1 = Conv2D(64, 3, padding='same', use_bias=False, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4))(x)
     y1 = BatchNormalization()(y1)
     y1 = ReLU()(y1)
     y1 = Conv2D(num_classes, 1, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4), activation='sigmoid')(y1)
 
-    # wh header
+    # wh header  batch * 2 * 128 * 128
     y2 = Conv2D(64, 3, padding='same', use_bias=False, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4))(x)
     y2 = BatchNormalization()(y2)
     y2 = ReLU()(y2)
     y2 = Conv2D(2, 1, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4))(y2)
 
-    # reg header
+    # reg header  batch * 2 * 128 * 128
     y3 = Conv2D(64, 3, padding='same', use_bias=False, kernel_initializer='he_normal', kernel_regularizer=l2(5e-4))(x)
     y3 = BatchNormalization()(y3)
     y3 = ReLU()(y3)
@@ -201,12 +203,13 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
         [y1, y2, y3, hm_input, wh_input, reg_input, reg_mask_input, index_input])
     model = Model(inputs=[image_input, hm_input, wh_input, reg_input, reg_mask_input, index_input], outputs=[loss_])
 
-    # detections = decode(y1, y2, y3)
+    # detections = decode(y1, y2, y3) hm wh reg
+    # detection:[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
     detections = Lambda(lambda x: decode(*x,
                                          max_objects=max_objects,
                                          score_threshold=score_threshold,
                                          nms=nms,
                                          num_classes=num_classes))([y1, y2, y3])
     prediction_model = Model(inputs=image_input, outputs=detections)
-    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])
+    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])   #利用函数API，从Input开始，然后后续指定前向过程，最后根据输入和输出来建立模型
     return model, prediction_model, debug_model
