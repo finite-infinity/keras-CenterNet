@@ -344,6 +344,7 @@ def main(args=None):
         validation_generator = None
 
     # start training（fit_generator:函数假定存在一个为其生成数据的基础函数）
+    # generater返回input = [batch图像 圆形heatmap 宽高 残差（hm wh reg） 残差mask index] target = np.zeros((len(image_group),
     return model.fit_generator(
         generator=train_generator,
         steps_per_epoch=args.steps,
