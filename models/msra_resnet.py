@@ -82,21 +82,21 @@ def evaluate_batch_item(batch_item_detections, num_classes, max_objects_per_clas
                                     pad)
     return batch_item_detections
 
-#利用hm（heatmap）得到的inds-维度n*K，将 wh，reg对应位置值提取出来；再利用xs和ys计算bbox：
+#利用hm（heatmap）得到的topk inds（维度num_class*100），将 对应位置wh，reg值提取出来；再利用xs和ys计算bbox：
 #[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
 def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_threshold=0.1):
-    scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)
+    scores, indices, class_ids, xs, ys = topk(hm, max_objects=max_objects)    #从heatmap中取出score最高的100个点
     b = tf.shape(hm)[0]
     # (b, h * w, 2)
-    reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))  #reshape成（batch, h*w, channel=2）
+    reg = tf.reshape(reg, (b, -1, tf.shape(reg)[-1]))  #残差，reshape成（batch, h*w, channel=2） 即每张图的残差
     # (b, h * w, 2)
-    wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))     #宽高
+    wh = tf.reshape(wh, (b, -1, tf.shape(wh)[-1]))     #宽高 reshape成（batch, h*w, channel=2） 每张图的宽高
     # (b, k, 2)
     topk_reg = tf.gather(reg, indices, batch_dims=1) 
     # (b, k, 2)
     topk_wh = tf.cast(tf.gather(wh, indices, batch_dims=1), tf.float32)  #取出wh中对应indices下标的数据
-    topk_cx = tf.cast(tf.expand_dims(xs, axis=-1), tf.float32) + topk_reg[..., 0:1]
-    topk_cy = tf.cast(tf.expand_dims(ys, axis=-1), tf.float32) + topk_reg[..., 1:2]
+    topk_cx = tf.cast(tf.expand_dims(xs, axis=-1), tf.float32) + topk_reg[..., 0:1]  
+    topk_cy = tf.cast(tf.expand_dims(ys, axis=-1), tf.float32) + topk_reg[..., 1:2]     #把中心点残差加上，减小误差
     scores = tf.expand_dims(scores, axis=-1)
     class_ids = tf.cast(tf.expand_dims(class_ids, axis=-1), tf.float32)
     topk_x1 = topk_cx - topk_wh[..., 0:1] / 2
@@ -105,7 +105,7 @@ def decode(hm, wh, reg, max_objects=100, nms=True, num_classes=20, score_thresho
     topk_y2 = topk_cy + topk_wh[..., 1:2] / 2    #得到box：（xmin,ymin,xmax,ymax）
     # (b, k, 6)
     detections = tf.concat([topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids], axis=-1)
-    if nms:
+    if nms:     #是否nms处理
         detections = tf.map_fn(lambda x: evaluate_batch_item(x[0],
                                                              num_classes=num_classes,
                                                              score_threshold=score_threshold),
@@ -122,7 +122,7 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
     wh_input = Input(shape=(max_objects, 2))
     reg_input = Input(shape=(max_objects, 2))
     reg_mask_input = Input(shape=(max_objects,))
-    index_input = Input(shape=(max_objects,))
+    index_input = Input(shape=(max_objects,))   #构建输入层
 
     if backbone == 'resnet18':
         resnet = ResNet18(image_input, include_top=False, freeze_bn=True)
@@ -132,16 +132,16 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
         resnet = ResNet50(image_input, include_top=False, freeze_bn=True)
 
     # C5 (b, 16, 16, 512)
-    C2, C3, C4, C5 = resnet.outputs   
+    C2, C3, C4, C5 = resnet.outputs   #resnet的输出
     
     #dropout
     C5 = Dropout(rate=0.5)(C5)
     C4 = Dropout(rate=0.4)(C4)
     C3 = Dropout(rate=0.3)(C3)
     C2 = Dropout(rate=0.2)(C2)
-    x = C5
+    x = C5    #Dropout=0.5
 
-    # decoder
+    # decoder 计算hm wh reg
     x = Conv2D(256, 1, padding='same', use_bias=False,
                kernel_initializer='he_normal',
                kernel_regularizer=l2(5e-4))(UpSampling2D()(x))
@@ -201,10 +201,12 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
 
     loss_ = Lambda(loss, name='centernet_loss')(
         [y1, y2, y3, hm_input, wh_input, reg_input, reg_mask_input, index_input]) #搭建Lambda层 计算loss ，继承tf.keras.layers.Layer并重写config更稳妥
+    #input为lable（会从model输入）
     
     # input_layer = keras.Input(shape), conv = conv_layer(input_layer), ..., output_layer = conv_layer(conv)
     # model = Model(input=input_layer, output=output_layer)
-    # 搭建训练用model，输出为loss
+    # 搭建训练用model
+    # model用于生成loss
     model = Model(inputs=[image_input, hm_input, wh_input, reg_input, reg_mask_input, index_input], outputs=[loss_])
 
     # detections = decode(y1, y2, y3) hm wh reg
@@ -214,6 +216,7 @@ def centernet(num_classes, backbone='resnet50', input_size=512, max_objects=100,
                                          score_threshold=score_threshold,
                                          nms=nms,
                                          num_classes=num_classes))([y1, y2, y3])
+    #从resnet输入img_input开始一路搭建的网络（detec时会加载权重）
     prediction_model = Model(inputs=image_input, outputs=detections)  # 测试（推断）用model,最终输出为推断值[topk_x1, topk_y1, topk_x2, topk_y2, scores, class_ids]
-    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])     # 输出 hm wh reg
+    debug_model = Model(inputs=image_input, outputs=[y1, y2, y3])     # 输入图像到输出 hm wh reg 再输入model计算loss
     return model, prediction_model, debug_model
