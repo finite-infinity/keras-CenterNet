@@ -397,7 +397,7 @@ class Generator(keras.utils.Sequence):
             assert class_ids.shape[0] != 0
 
             trans_output = get_affine_transform(c, s, self.output_size)  #仿射变换
-            for i in range(bboxes.shape[0]):
+            for i in range(bboxes.shape[0]):  #对每个box，生成高斯中心点热图
                 bbox = bboxes[i].copy()
                 cls_id = class_ids[i]
                 # (x1, y1)
@@ -406,9 +406,9 @@ class Generator(keras.utils.Sequence):
                 bbox[2:] = affine_transform(bbox[2:], trans_output)
                 bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, self.output_size - 1)
                 bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, self.output_size - 1)  #box超出output_size的部分剪裁掉
-                h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
+                h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]     #计算wh
                 if h > 0 and w > 0:
-                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w))) #生成高斯半径（三种r中最小的）
+                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w))) #根据图像宽高，生成高斯半径（三种r中最小的）
                     radius_h = max(0, int(radius_h))
                     radius_w = max(0, int(radius_w))
 
