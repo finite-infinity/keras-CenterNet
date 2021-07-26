@@ -50,22 +50,27 @@ def get_affine_transform(center,
 #椭圆
 def draw_gaussian(heatmap, center, radius_h, radius_w, k=1):
     diameter_h = 2 * radius_h + 1
-    diameter_w = 2 * radius_w + 1  #辐射圆直径
-    gaussian = gaussian2D((diameter_h, diameter_w), sigma_w=diameter_w / 6, sigma_h=diameter_h / 6)   #定义高斯核卷积
+    diameter_w = 2 * radius_w + 1  #辐射椭圆直径
+    gaussian = gaussian2D((diameter_h, diameter_w), sigma_w=diameter_w / 6, sigma_h=diameter_h / 6)   # sigma是一个与直径相关的参数
+    # 一个圆对应内切正方形的高斯分布
 
     x, y = int(center[0]), int(center[1])   #中心点坐标
 
     height, width = heatmap.shape[0:2]
     
-    #上下左右距中心距离
+    #上下左右距中心距离（防止越界）
     left, right = min(x, radius_w), min(width - x, radius_w + 1)   #左端距x距离
     top, bottom = min(y, radius_h), min(height - y, radius_h + 1)  #辐射框底端距y距离（不跑出图外）  顶端距y距离（不高于GT框）
 
     masked_heatmap = heatmap[y - top:y + bottom, x - left:x + right]  #保留图的mask
-    ## 取[abs(radius_h - y):max(y, radius_h)+min(height - y, radius_h + 1), abs(radius_w - x):max(x, radius_w)+min(width - x, radius_w + 1)
+    # 取[abs(radius_h - y):max(y, radius_h)+min(height - y, radius_h + 1), abs(radius_w - x):max(x, radius_w)+min(width - x, radius_w + 1)
+    # 将高斯分布结果约束在边界内
     masked_gaussian = gaussian[radius_h - top:radius_h + bottom, radius_w - left:radius_w + right] 
     if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
         np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
+        # 将高斯分布覆盖到heatmap上，相当于不断的在heatmap基础上添加关键点的高斯，
+        # 即同一种类型的框会在一个heatmap某一个类别通道上面上面不断添加。
+        # 最终通过函数总体的for循环，相当于不断将目标画到heatmap
     return heatmap
 
 
@@ -127,21 +132,21 @@ def gaussian_radius_2(det_size, min_overlap=0.7):
     b1 = (height + width)
     c1 = width * height * (1 - min_overlap) / (1 + min_overlap)
     sq1 = np.sqrt(b1 ** 2 - 4 * a1 * c1)
-    r1 = (b1 + sq1) / 2
+    r1 = (b1 + sq1) / (2 * a1)
     
     #小
     a2 = 4
     b2 = 2 * (height + width)
     c2 = (1 - min_overlap) * width * height
     sq2 = np.sqrt(b2 ** 2 - 4 * a2 * c2)
-    r2 = (b2 + sq2) / 2
+    r2 = (b2 + sq2) / (2 * a2)
     
     #大
     a3 = 4 * min_overlap
     b3 = -2 * min_overlap * (height + width)
     c3 = (min_overlap - 1) * width * height
     sq3 = np.sqrt(b3 ** 2 - 4 * a3 * c3)
-    r3 = (b3 + sq3) / 2
+    r3 = (b3 + sq3) / (2 * a3)
     return min(r1, r2, r3)  #返回最小的辐射半径
 
 
