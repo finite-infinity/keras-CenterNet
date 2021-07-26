@@ -117,6 +117,7 @@ class Generator(keras.utils.Sequence):
         """
         raise NotImplementedError('load_annotations method not implemented')
 
+    #输入index load_annotations在具体加载数据集的py文件中定义
     def load_annotations_group(self, group):
         """
         Load annotations for all images in group.
@@ -361,6 +362,8 @@ class Generator(keras.utils.Sequence):
         self.groups = [[order[x % len(order)] for x in range(i, i + self.batch_size)] for i in
                        range(0, len(order), self.batch_size)]
 
+    # 生成输入数据
+    # batch图像 圆形heatmap 宽高 残差（hm wh reg） 残差mask index
     def compute_inputs(self, image_group, annotations_group):
         """
         Compute inputs for the network using an image_group.
@@ -379,9 +382,9 @@ class Generator(keras.utils.Sequence):
 
         # copy all images to the upper left part of the image batch object
         for b, (image, annotations) in enumerate(zip(image_group, annotations_group)):
-            c = np.array([image.shape[1] / 2., image.shape[0] / 2.], dtype=np.float32) 
-            s = max(image.shape[0], image.shape[1]) * 1.0
-            trans_input = get_affine_transform(c, s, self.input_size) 
+            c = np.array([image.shape[1] / 2., image.shape[0] / 2.], dtype=np.float32) #中心点坐标
+            s = max(image.shape[0], image.shape[1]) * 1.0    #最大边长
+            trans_input = get_affine_transform(c, s, self.input_size)  #放射变形为input_size
 
             # inputs
             image = self.preprocess_image(image, c, s, tgt_w=self.input_size, tgt_h=self.input_size) #将图片变形（长宽一半）
@@ -393,7 +396,7 @@ class Generator(keras.utils.Sequence):
             class_ids = annotations['labels']
             assert class_ids.shape[0] != 0
 
-            trans_output = get_affine_transform(c, s, self.output_size)
+            trans_output = get_affine_transform(c, s, self.output_size)  #仿射变换
             for i in range(bboxes.shape[0]):
                 bbox = bboxes[i].copy()
                 cls_id = class_ids[i]
@@ -402,23 +405,23 @@ class Generator(keras.utils.Sequence):
                 # (x2, y2)
                 bbox[2:] = affine_transform(bbox[2:], trans_output)
                 bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, self.output_size - 1)
-                bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, self.output_size - 1)
+                bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, self.output_size - 1)  #box超出output_size的部分剪裁掉
                 h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
                 if h > 0 and w > 0:
-                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w))) #生成高斯半径
+                    radius_h, radius_w = gaussian_radius((math.ceil(h), math.ceil(w))) #生成高斯半径（三种r中最小的）
                     radius_h = max(0, int(radius_h))
                     radius_w = max(0, int(radius_w))
 
                     radius = gaussian_radius_2((math.ceil(h), math.ceil(w)))  #圆形高斯半径
                     radius = max(0, int(radius))
-                    ct = np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)  #中心点
+                    ct = np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)  #剪裁后box中心点
                     ct_int = ct.astype(np.int32)
-                    draw_gaussian(batch_hms[b, :, :, cls_id], ct_int, radius_h, radius_w)  #生成cls_id类的heatmap，但没存返回值啊？
-                    draw_gaussian_2(batch_hms_2[b, :, :, cls_id], ct_int, radius)
-                    batch_whs[b, i] = 1. * w, 1. * h
-                    batch_indices[b, i] = ct_int[1] * self.output_size + ct_int[0]
-                    batch_regs[b, i] = ct - ct_int
-                    batch_reg_masks[b, i] = 1
+                    draw_gaussian(batch_hms[b, :, :, cls_id], ct_int, radius_h, radius_w)  #生成cls_id类的带高斯椭圆的heatmap
+                    draw_gaussian_2(batch_hms_2[b, :, :, cls_id], ct_int, radius)          #圆的
+                    batch_whs[b, i] = 1. * w, 1. * h     #第b张图 i个box的w h
+                    batch_indices[b, i] = ct_int[1] * self.output_size + ct_int[0]    #index=y*w + x
+                    batch_regs[b, i] = ct - ct_int     #残差（float变int的残差）
+                    batch_reg_masks[b, i] = 1          #有残差
 
                     # hm = batch_hms[b, :, :, cls_id]
                     # hm = np.round(hm * 255).astype(np.uint8)
@@ -459,14 +462,16 @@ class Generator(keras.utils.Sequence):
             # cv2.namedWindow('image', cv2.WINDOW_NORMAL)
             # cv2.imshow('image', image)
             # cv2.waitKey()
-        return [batch_images, batch_hms_2, batch_whs, batch_regs, batch_reg_masks, batch_indices]
+        return [batch_images, batch_hms_2, batch_whs, batch_regs, batch_reg_masks, batch_indices]  
 
     def compute_targets(self, image_group, annotations_group):
         """
         Compute target outputs for the network using images and their annotations.
+        计算目标输出
         """
         return np.zeros((len(image_group),))
-
+    
+    #输入index group 输出 input = [batch图像 圆形heatmap 宽高 残差（hm wh reg） 残差mask index] target = np.zeros((len(image_group),))
     def compute_inputs_targets(self, group):
         """
         Compute inputs and target outputs for the network.
@@ -512,21 +517,22 @@ class Generator(keras.utils.Sequence):
         """
 
         return len(self.groups)
-
+    
+    #确定多尺度图片的size，进行input和target计算
     def __getitem__(self, index):
         """
         Keras sequence method for generating batches.
         """
-        group = self.groups[self.current_index]
-        if self.multi_scale:
-            if self.current_index % 10 == 0:
-                random_size_index = np.random.randint(0, len(self.multi_image_sizes))
-                self.image_size = self.multi_image_sizes[random_size_index]
-        inputs, targets = self.compute_inputs_targets(group)
+        group = self.groups[self.current_index]    #当先训练group的图片序号
+        if self.multi_scale:       #多尺度
+            if self.current_index % 10 == 0:  #每十张换一个尺度
+                random_size_index = np.random.randint(0, len(self.multi_image_sizes)) #随机选择一个scale序号
+                self.image_size = self.multi_image_sizes[random_size_index] #选定的scale
+        inputs, targets = self.compute_inputs_targets(group)        
         while inputs is None:
             current_index = self.current_index + 1
             if current_index >= len(self.groups):
-                current_index = current_index % (len(self.groups))
+                current_index = current_index % (len(self.groups))    #再重新开始过一遍所有group
             self.current_index = current_index
             group = self.groups[self.current_index]
             inputs, targets = self.compute_inputs_targets(group)
@@ -536,14 +542,15 @@ class Generator(keras.utils.Sequence):
         self.current_index = current_index
         return inputs, targets
 
-    def preprocess_image(self, image, c, s, tgt_w, tgt_h):
-        trans_input = get_affine_transform(c, s, (tgt_w, tgt_h))
+    def preprocess_image(self, image, c, s, tgt_w, tgt_h):   #变为输出的size
+        trans_input = get_affine_transform(c, s, (tgt_w, tgt_h))  #生成变换矩阵
         image = cv2.warpAffine(image, trans_input, (tgt_w, tgt_h), flags=cv2.INTER_LINEAR)
         image = image.astype(np.float32)
-
+        
+        #255
         image[..., 0] -= 103.939
         image[..., 1] -= 116.779
-        image[..., 2] -= 123.68
+        image[..., 2] -= 123.68     #标准化？
 
         return image
 
